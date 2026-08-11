@@ -16,6 +16,7 @@ import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GraphicsEnvironment
+import java.awt.Image
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -335,178 +336,38 @@ private class CandidateCard(
     }
 }
 
-/** 来源图标徽章：彩色圆角底 + 白色品牌图标（内联绘制，无外部资源）。 */
+/** 来源图标徽章：圆角底 + 官方平台图标（从 classpath 加载）。 */
 private class SourceBadge(private val source: LyricsSource) : JComponent() {
-    private val color: Color = sourceColor(source)
+    private val icon: ImageIcon? = loadIcon(source)
     init { preferredSize = Dimension(36, 36) }
+
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
-        // 品牌色圆角底
-        g2.color = color
-        g2.fill(RoundRectangle2D.Double(0.0, 0.0, 36.0, 36.0, 10.0, 10.0))
-        // 白色品牌图标
-        SourceIconPainter.paint(g2, source)
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        // 透明背景：图标本身已含品牌色与形状，仅做圆角裁剪
+        val clip = RoundRectangle2D.Double(0.0, 0.0, 36.0, 36.0, 10.0, 10.0)
+        g2.clip = clip
+        icon?.paintIcon(this, g2, 0, 0)
         g2.dispose()
     }
-    private fun sourceColor(s: LyricsSource): Color = when (s) {
-        LyricsSource.APPLE_MUSIC -> Color(0xFA, 0x57, 0x5C)
-        LyricsSource.QQ -> Color(0x31, 0xC8, 0x88)
-        LyricsSource.NETEASE -> Color(0xE6, 0x3E, 0x3E)
-        LyricsSource.KUGOU -> Color(0x2E, 0x9C, 0xF6)
-        LyricsSource.KUWO -> Color(0xFF, 0xA5, 0x00)
-        LyricsSource.SPOTIFY -> Color(0x1D, 0xB9, 0x54)
-        LyricsSource.LOCAL -> Color(0x8B, 0x95, 0xA1)
-    }
-}
 
-/**
- * 各来源品牌图标绘制（白色，绘制在 36x36 徽章中央约 22x22 区域）。
- * 全部用 Java2D 几何图形内联绘制，无图片资源依赖。
- */
-private object SourceIconPainter {
-    private const val S = 36.0
-
-    fun paint(g2: Graphics2D, source: LyricsSource) {
-        g2.color = Color.WHITE
-        when (source) {
-            LyricsSource.APPLE_MUSIC -> apple(g2)
-            LyricsSource.QQ -> note(g2)
-            LyricsSource.NETEASE -> cloud(g2)
-            LyricsSource.KUGOU -> dog(g2)
-            LyricsSource.KUWO -> mic(g2)
-            LyricsSource.SPOTIFY -> waves(g2)
-            LyricsSource.LOCAL -> folder(g2)
+    private fun loadIcon(s: LyricsSource): ImageIcon? {
+        val fileName = when (s) {
+            LyricsSource.APPLE_MUSIC -> "applemusic.png"
+            LyricsSource.QQ -> "qq.png"
+            LyricsSource.NETEASE -> "netease.png"
+            LyricsSource.KUGOU -> "kugou.png"
+            LyricsSource.KUWO -> "kuwo.png"
+            LyricsSource.SPOTIFY -> "spotify.png"
+            LyricsSource.LOCAL -> "local.png"
         }
-    }
-
-    /** Apple Music：咬过的苹果剪影 + 叶子。 */
-    private fun apple(g2: Graphics2D) {
-        val p = java.awt.geom.Path2D.Double()
-        // 苹果主体（左侧圆 + 右侧带咬口）
-        p.moveTo(S * 0.62, S * 0.18)
-        p.curveTo(S * 0.42, S * 0.06, S * 0.16, S * 0.16, S * 0.14, S * 0.40)
-        p.curveTo(S * 0.12, S * 0.62, S * 0.22, S * 0.86, S * 0.36, S * 0.86)
-        p.curveTo(S * 0.44, S * 0.86, S * 0.48, S * 0.80, S * 0.54, S * 0.80)
-        p.curveTo(S * 0.60, S * 0.80, S * 0.64, S * 0.86, S * 0.72, S * 0.86)
-        p.curveTo(S * 0.86, S * 0.86, S * 0.92, S * 0.62, S * 0.86, S * 0.40)
-        p.curveTo(S * 0.83, S * 0.28, S * 0.74, S * 0.22, S * 0.62, S * 0.18)
-        p.closePath()
-        // 咬口（反向小圆弧切除右侧）
-        val bite = java.awt.geom.Ellipse2D.Double(S * 0.80, S * 0.40, S * 0.14, S * 0.14)
-        val area = java.awt.geom.Area(p).apply { subtract(java.awt.geom.Area(bite)) }
-        g2.fill(area)
-        // 叶子
-        val leaf = java.awt.geom.Path2D.Double()
-        leaf.moveTo(S * 0.52, S * 0.20)
-        leaf.curveTo(S * 0.58, S * 0.08, S * 0.72, S * 0.06, S * 0.74, S * 0.16)
-        leaf.curveTo(S * 0.70, S * 0.22, S * 0.60, S * 0.24, S * 0.52, S * 0.20)
-        leaf.closePath()
-        g2.fill(leaf)
-    }
-
-    /** QQ 音乐：八分音符（音头 + 竖杆 + 旗）。 */
-    private fun note(g2: Graphics2D) {
-        g2.stroke = BasicStroke((S * 0.10).toFloat(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        // 竖杆
-        g2.drawLine((S * 0.64).toInt(), (S * 0.24).toInt(), (S * 0.64).toInt(), (S * 0.66).toInt())
-        // 旗
-        val flag = java.awt.geom.Path2D.Double()
-        flag.moveTo(S * 0.64, S * 0.24)
-        flag.curveTo(S * 0.80, S * 0.30, S * 0.82, S * 0.42, S * 0.74, S * 0.52)
-        flag.lineTo(S * 0.74, S * 0.36)
-        flag.curveTo(S * 0.72, S * 0.32, S * 0.68, S * 0.28, S * 0.64, S * 0.28)
-        flag.closePath()
-        g2.fill(flag)
-        // 音头
-        g2.fill(java.awt.geom.Ellipse2D.Double(S * 0.24, S * 0.58, S * 0.40, S * 0.26))
-    }
-
-    /** 网易云：云朵（三个凸圆 + 平底）。 */
-    private fun cloud(g2: Graphics2D) {
-        val p = java.awt.geom.Path2D.Double()
-        val baseY = S * 0.68
-        p.moveTo(S * 0.20, baseY)
-        // 左凸
-        p.curveTo(S * 0.08, baseY, S * 0.06, S * 0.44, S * 0.22, S * 0.44)
-        p.curveTo(S * 0.22, S * 0.28, S * 0.44, S * 0.24, S * 0.50, S * 0.38)
-        // 中凸
-        p.curveTo(S * 0.54, S * 0.22, S * 0.78, S * 0.26, S * 0.78, S * 0.44)
-        // 右凸
-        p.curveTo(S * 0.94, S * 0.44, S * 0.92, baseY, S * 0.80, baseY)
-        p.closePath()
-        g2.fill(p)
-    }
-
-    /** 酷狗：狗头（圆脸 + 两只耳朵 + 鼻子）。 */
-    private fun dog(g2: Graphics2D) {
-        // 左耳
-        val earL = java.awt.geom.Path2D.Double()
-        earL.moveTo(S * 0.20, S * 0.40)
-        earL.lineTo(S * 0.12, S * 0.16)
-        earL.lineTo(S * 0.34, S * 0.30)
-        earL.closePath()
-        g2.fill(earL)
-        // 右耳
-        val earR = java.awt.geom.Path2D.Double()
-        earR.moveTo(S * 0.80, S * 0.40)
-        earR.lineTo(S * 0.88, S * 0.16)
-        earR.lineTo(S * 0.66, S * 0.30)
-        earR.closePath()
-        g2.fill(earR)
-        // 脸（圆）
-        g2.fill(java.awt.geom.Ellipse2D.Double(S * 0.20, S * 0.30, S * 0.60, S * 0.54))
-        // 鼻子（用底色小圆点突出）
-        g2.color = SourceBadgeColorForDog
-        g2.fill(java.awt.geom.Ellipse2D.Double(S * 0.44, S * 0.50, S * 0.12, S * 0.09))
-        g2.color = Color.WHITE
-    }
-
-    /** 酷我：麦克风（圆头 + 杆 + 底座）。 */
-    private fun mic(g2: Graphics2D) {
-        g2.stroke = BasicStroke((S * 0.10).toFloat(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        // 麦克风头（圆角矩形）
-        g2.fill(java.awt.geom.RoundRectangle2D.Double(S * 0.32, S * 0.16, S * 0.36, S * 0.40, S * 0.18, S * 0.18))
-        // 杆
-        g2.drawLine((S * 0.50).toInt(), (S * 0.56).toInt(), (S * 0.50).toInt(), (S * 0.76).toInt())
-        // 底座横杆
-        g2.drawLine((S * 0.34).toInt(), (S * 0.76).toInt(), (S * 0.66).toInt(), (S * 0.76).toInt())
-    }
-
-    /** Spotify：三条同心声波弧线。 */
-    private fun waves(g2: Graphics2D) {
-        g2.stroke = BasicStroke((S * 0.11).toFloat(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        val cx = S * 0.50
-        val cy = S * 0.54
-        g2.draw(java.awt.geom.Arc2D.Double(
-            cx - S * 0.40, cy - S * 0.40, S * 0.80, S * 0.80,
-            30.0, 120.0, java.awt.geom.Arc2D.OPEN))
-        g2.draw(java.awt.geom.Arc2D.Double(
-            cx - S * 0.28, cy - S * 0.28, S * 0.56, S * 0.56,
-            30.0, 120.0, java.awt.geom.Arc2D.OPEN))
-        g2.draw(java.awt.geom.Arc2D.Double(
-            cx - S * 0.16, cy - S * 0.16, S * 0.32, S * 0.32,
-            30.0, 120.0, java.awt.geom.Arc2D.OPEN))
-    }
-
-    /** 本地：文件夹。 */
-    private fun folder(g2: Graphics2D) {
-        val p = java.awt.geom.Path2D.Double()
-        p.moveTo(S * 0.18, S * 0.30)
-        p.lineTo(S * 0.40, S * 0.30)
-        p.lineTo(S * 0.46, S * 0.38)
-        p.lineTo(S * 0.82, S * 0.38)
-        p.lineTo(S * 0.82, S * 0.74)
-        p.lineTo(S * 0.18, S * 0.74)
-        p.closePath()
-        g2.fill(p)
+        val url = javaClass.getResource("/icons/$fileName") ?: return null
+        val scaled = ImageIcon(url).image.getScaledInstance(36, 36, Image.SCALE_SMOOTH)
+        return ImageIcon(scaled)
     }
 }
-
-/** 酷狗徽章底色，用于狗鼻子的对比色。 */
-private val SourceBadgeColorForDog: Color = Color(0x2E, 0x9C, 0xF6)
 
 /** 亚克力风格按钮：圆角、悬停渐变、主/次样式。 */
 private class AcrylicButton(text: String, private val primary: Boolean) : JButton(text) {
