@@ -50,6 +50,8 @@ object MatchEngine {
     const val MIN_TITLE_ALBUM_TOTAL = 0.82
     const val MIN_DURATION = 0.60
     const val MIN_GAP = 0.04
+    /** 模糊兜底阈值：无候选通过严格门槛时，最高分达到此值仍返回（用户期望模糊匹配）。 */
+    const val FUZZY_FALLBACK = 0.55
 
     fun score(query: TrackQuery, candidate: LyricsCandidate): CandidateScore {
         val title = TextNormalizer.similarity(query.title, candidate.title)
@@ -88,10 +90,16 @@ object MatchEngine {
                     .thenBy { it.candidate.remoteId },
             )
         val best = ranked.firstOrNull() ?: return MatchDecision(null, ranked, false)
-        if (!best.passesAutomaticGate) return MatchDecision(null, ranked, false)
+        if (!best.passesAutomaticGate) {
+            // 模糊兜底：无候选通过严格门槛时，若最高分达到模糊阈值仍返回，
+            // 满足“不完全匹配也放个匹配度最高的上去”的诉求。
+            return if (best.score >= FUZZY_FALLBACK) MatchDecision(best, ranked, false)
+            else MatchDecision(null, ranked, false)
+        }
         val second = ranked.drop(1).firstOrNull { it.passesAutomaticGate && !sameMetadata(best.candidate, it.candidate) }
         val ambiguous = second != null && best.score - second.score < MIN_GAP
-        return MatchDecision(if (ambiguous) null else best, ranked, ambiguous)
+        // 即使歧义也返回最高分候选（用户偏好有歌词胜过无歌词），但标记为 ambiguous 供调试
+        return MatchDecision(best, ranked, ambiguous)
     }
 
     private fun artistSimilarity(query: TrackQuery, candidate: LyricsCandidate): Double? {

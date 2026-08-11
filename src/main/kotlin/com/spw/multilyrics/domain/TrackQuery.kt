@@ -79,6 +79,40 @@ data class TrackQuery(
 
     companion object {
         fun splitArtists(value: String): List<String> = TextNormalizer.splitArtists(value)
+
+        /**
+         * 从文件路径解析 "Artist - Title" 结构，返回 (title, artists)。
+         *
+         * 当音频文件无任何标签时，文件名常是唯一线索，且多遵循 "Artist - Title.ext" 约定。
+         * 解析后让 MatchEngine 能用真实的标题/艺术家与远程候选比较，而非面对空标签直接放弃。
+         *
+         * - 去扩展名、去轨道号前缀（"01 - "）
+         * - 按 " - " 分割：第一段为艺术家（可能含 ", " "&" 多人），其余为标题
+         * - 标题清理 feat./版本括号尾注；艺术家按 splitArtists 拆分
+         * - 无 " - " 时整体作为标题
+         */
+        fun parseFilename(path: String): Pair<String, List<String>> {
+            val raw = path.trim()
+            if (raw.isEmpty()) return "" to emptyList()
+            val slash = raw.lastIndexOfAny(charArrayOf('/', '\\'))
+            val name = if (slash >= 0) raw.substring(slash + 1) else raw
+            val dot = name.lastIndexOf('.')
+            val stem = if (dot > 0) name.substring(0, dot) else name
+            if (stem.isBlank()) return "" to emptyList()
+            // 移除轨道号前缀：开头 1-3 位数字 + 可选分隔符（- . )）
+            val cleaned = stem.replace(Regex("""^\s*\d{1,3}\s*[-.\)]\s*"""), "").ifBlank { stem }
+            // 按 " - " 分割：第一段为艺术家，其余为标题
+            val idx = cleaned.indexOf(" - ")
+            return if (idx > 0) {
+                val artistPart = cleaned.substring(0, idx).trim()
+                val titlePart = cleaned.substring(idx + 3).trim()
+                val title = TextNormalizer.cleanSearchTitle(titlePart)
+                val artists = TextNormalizer.splitArtists(artistPart)
+                title to artists
+            } else {
+                TextNormalizer.cleanSearchTitle(cleaned) to emptyList()
+            }
+        }
     }
 }
 

@@ -116,13 +116,19 @@ object PluginRuntime {
 
     private fun toQuery(mediaItem: PlaybackExtensionPoint.MediaItem): TrackQuery {
         // MediaItem 不提供 duration，从本地音频文件读取（FLAC/M4A/MP3/WAV）。
-        // 时长对 lrclib /api/get 精确匹配和 MatchEngine 时长评分至关重要——
-        // 没有时长时预览片段与正片分数相同却被判为“不同录音”，触发歧义导致搜不到歌词。
         val durationMs = mediaItem.path.takeIf(String::isNotBlank)
             ?.let { runCatching { AudioDurationReader.readDurationMs(it) }.getOrNull() }
+        var title = mediaItem.title
+        var artists = TrackQuery.splitArtists(mediaItem.artist)
+        // 标签缺失时从文件名解析 "Artist - Title"，否则 MatchEngine 面对空标签直接放弃
+        if (title.isBlank() && artists.isEmpty()) {
+            val (fileTitle, fileArtists) = TrackQuery.parseFilename(mediaItem.path)
+            if (title.isBlank()) title = fileTitle
+            if (artists.isEmpty()) artists = fileArtists
+        }
         return TrackQuery(
-            title = mediaItem.title,
-            artists = TrackQuery.splitArtists(mediaItem.artist),
+            title = title,
+            artists = artists,
             album = mediaItem.album,
             albumArtists = TrackQuery.splitArtists(mediaItem.albumArtist),
             path = mediaItem.path,
