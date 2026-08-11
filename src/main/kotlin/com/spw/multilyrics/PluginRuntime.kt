@@ -2,6 +2,7 @@
 
 package com.spw.multilyrics
 
+import com.spw.multilyrics.domain.AudioDurationReader
 import com.spw.multilyrics.domain.LyricsSource
 import com.spw.multilyrics.domain.TrackQuery
 import com.spw.multilyrics.provider.AppleMusicProvider
@@ -113,13 +114,21 @@ object PluginRuntime {
         return encoded
     }
 
-    private fun toQuery(mediaItem: PlaybackExtensionPoint.MediaItem): TrackQuery = TrackQuery(
-        title = mediaItem.title,
-        artists = TrackQuery.splitArtists(mediaItem.artist),
-        album = mediaItem.album,
-        albumArtists = TrackQuery.splitArtists(mediaItem.albumArtist),
-        path = mediaItem.path,
-    )
+    private fun toQuery(mediaItem: PlaybackExtensionPoint.MediaItem): TrackQuery {
+        // MediaItem 不提供 duration，从本地音频文件读取（FLAC/M4A/MP3/WAV）。
+        // 时长对 lrclib /api/get 精确匹配和 MatchEngine 时长评分至关重要——
+        // 没有时长时预览片段与正片分数相同却被判为“不同录音”，触发歧义导致搜不到歌词。
+        val durationMs = mediaItem.path.takeIf(String::isNotBlank)
+            ?.let { runCatching { AudioDurationReader.readDurationMs(it) }.getOrNull() }
+        return TrackQuery(
+            title = mediaItem.title,
+            artists = TrackQuery.splitArtists(mediaItem.artist),
+            album = mediaItem.album,
+            albumArtists = TrackQuery.splitArtists(mediaItem.albumArtist),
+            path = mediaItem.path,
+            durationMs = durationMs,
+        )
+    }
 
     private fun toast(message: String, s: PluginSettings) {
         if (s.showToast) runCatching { WorkshopApi.ui.toast(message, WorkshopApi.Ui.ToastType.Success) }

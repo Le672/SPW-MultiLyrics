@@ -34,6 +34,8 @@ data class TrackQuery(
         val cleanTitle = TextNormalizer.cleanSearchTitle(title)
         val primaryArtist = artists.firstOrNull()?.trim().orEmpty()
         val artistText = artists.joinToString(" ").trim()
+        // 文件名（去扩展名、去轨道序号前缀）清理后作为关键词来源
+        val fileNameQuery = fileNameQuery()
         return buildList {
             // 1. 原始标题 + 第一艺术家（最精确，保留原始拼写和符号）
             add(listOf(title.trim(), primaryArtist).filter(String::isNotBlank).joinToString(" "))
@@ -47,11 +49,32 @@ data class TrackQuery(
             if (album.isNotBlank()) add(listOf(cleanTitle, album).filter(String::isNotBlank).joinToString(" "))
             // 5. 仅清理后标题
             if (cleanTitle.isNotBlank()) add(cleanTitle)
-            // 6. 仅原始标题（兜底，部分平台能处理特殊符号）
+            // 6. 文件名清理后作为整体关键词（标题标签异常时，文件名常更干净，如 "Don Toliver - Lose My Mind.mp3"）
+            if (fileNameQuery.isNotBlank() && fileNameQuery != cleanTitle && fileNameQuery != title.trim()) {
+                add(fileNameQuery)
+            }
+            // 7. 仅原始标题（兜底，部分平台能处理特殊符号）
             if (title.trim().isNotBlank() && title.trim() != cleanTitle) add(title.trim())
-            // 7. 标题异常时用艺术家名兜底
+            // 8. 标题异常时用艺术家名兜底
             if (cleanTitle.isBlank() && artistText.isNotBlank()) add(artistText)
         }.map(String::trim).filter(String::isNotBlank).distinct()
+    }
+
+    /**
+     * 从 [path] 提取文件名（去扩展名），移除常见轨道序号前缀（如 "01 - "），
+     * 并清理 feat./版本括号尾注，作为搜索关键词。
+     */
+    private fun fileNameQuery(): String {
+        val raw = path.trim()
+        if (raw.isEmpty()) return ""
+        val slash = raw.lastIndexOfAny(charArrayOf('/', '\\'))
+        val name = if (slash >= 0) raw.substring(slash + 1) else raw
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        if (stem.isBlank()) return ""
+        // 移除轨道号前缀：开头 1-3 位数字 + 可选分隔符（- . 空格）
+        val cleaned = stem.replace(Regex("""^\s*\d{1,3}\s*[-.\)]\s*"""), "")
+        return TextNormalizer.cleanSearchTitle(cleaned.ifBlank { stem })
     }
 
     companion object {
