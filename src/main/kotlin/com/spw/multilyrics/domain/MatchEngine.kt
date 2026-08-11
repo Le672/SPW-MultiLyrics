@@ -11,11 +11,13 @@ data class CandidateScore(
     val albumScore: Double?,
     val durationScore: Double?,
     val versionConflict: Boolean,
+    val durationRejected: Boolean,
 ) {
     /** 是否达到自动采用阈值。 */
     val passesAutomaticGate: Boolean
         get() {
             if (versionConflict) return false
+            if (durationRejected) return false
             if (durationScore != null && durationScore < MatchEngine.MIN_DURATION) return false
             val titleAndArtist = titleScore >= MatchEngine.MIN_TITLE &&
                 artistScore != null && artistScore >= MatchEngine.MIN_ARTIST &&
@@ -52,6 +54,12 @@ object MatchEngine {
     const val MIN_GAP = 0.04
     /** 模糊兜底阈值：无候选通过严格门槛时，最高分达到此值仍返回（用户期望模糊匹配）。 */
     const val FUZZY_FALLBACK = 0.55
+    /**
+     * 时长硬否决阈值（秒）：本地有时长且候选时长偏差超过此值，视为不同录音/翻唱/魔改，
+     * 即使模糊兜底也不采用。网易云等平台常为无版权歌曲返回翻唱/魔改版本，时长与原版
+     * 差异巨大（如 269s 原版 vs 86s/119s 翻唱），仅靠 durationScore 惩罚不足以拦截。
+     */
+    const val DURATION_REJECT_SECONDS = 10_000L
 
     fun score(query: TrackQuery, candidate: LyricsCandidate): CandidateScore {
         val title = TextNormalizer.similarity(query.title, candidate.title)
@@ -74,7 +82,25 @@ object MatchEngine {
         val conflict = localVersions != remoteVersions &&
             (localVersions.isNotEmpty() || remoteVersions.isNotEmpty())
 
-        return CandidateScore(candidate, if (conflict) raw - 0.25 else raw, title, artist, album, duration, conflict)
+        // 时长硬否决：本地有时长且候选时长偏差超过阈值（10s），视为不同录音/翻唱/魔改。
+        // 网易云等平台常为无版权歌曲返回翻唱/魔改版本，时长与原版差异巨大。
+        val durationRejected = isDurationRejected(query.durationMs, candidate.durationMs)
+
+        return CandidateScore(
+            candidate = candidate,
+            score = if (conflict) raw - 0.25 else raw,
+            titleScore = title,
+            artistScore = artist,
+            albumScore = album,
+            durationScore = duration,
+            versionConflict = conflict,
+            durationRejected = durationRejected,
+        )
+    }
+
+    private fun isDurationRejected(local: Long?, remote: Long?): Boolean {
+        if (local == null || remote == null || local <= 0 || remote <= 0) return false
+        return abs(local - remote) > DURATION_REJECT_SECONDS
     }
 
     fun decide(query: TrackQuery, candidates: List<LyricsCandidate>): MatchDecision {
@@ -89,14 +115,16 @@ object MatchEngine {
                     .thenByDescending { it.candidate.qualityHint?.rank ?: -1 }
                     .thenBy { it.candidate.remoteId },
             )
-        val best = ranked.firstOrNull() ?: return MatchDecision(null, ranked, false)
+        // 时长硬否决的候选不参与自动采用和模糊兜底（翻唱/魔改版本时长差异巨大）
+        val admissible = ranked.filterNot { it.durationRejected }
+        val best = admissible.firstOrNull() ?: return MatchDecision(null, ranked, false)
         if (!best.passesAutomaticGate) {
             // 模糊兜底：无候选通过严格门槛时，若最高分达到模糊阈值仍返回，
             // 满足“不完全匹配也放个匹配度最高的上去”的诉求。
             return if (best.score >= FUZZY_FALLBACK) MatchDecision(best, ranked, false)
             else MatchDecision(null, ranked, false)
         }
-        val second = ranked.drop(1).firstOrNull { it.passesAutomaticGate && !sameMetadata(best.candidate, it.candidate) }
+        val second = admissible.drop(1).firstOrNull { it.passesAutomaticGate && !sameMetadata(best.candidate, it.candidate) }
         val ambiguous = second != null && best.score - second.score < MIN_GAP
         // 即使歧义也返回最高分候选（用户偏好有歌词胜过无歌词），但标记为 ambiguous 供调试
         return MatchDecision(best, ranked, ambiguous)
