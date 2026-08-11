@@ -30,22 +30,27 @@ data class TrackQuery(
 
     /** 生成多组搜索关键词，从精确到宽泛依次尝试。 */
     fun searchQueries(): List<String> {
-        val cleanTitle = TextNormalizer.removeVersionNoise(title).trim()
+        // 清理后的标题：移除 feat./ft./with 合作者标注和版本/来源括号尾注
+        val cleanTitle = TextNormalizer.cleanSearchTitle(title)
+        val primaryArtist = artists.firstOrNull()?.trim().orEmpty()
         val artistText = artists.joinToString(" ").trim()
-        val normalizedTitle = TextNormalizer.normalize(title).trim()
-        // 标题归一化后为空（纯符号/特殊字符）时，用原始标题兜底
-        val effectiveTitle = normalizedTitle.ifBlank { title.trim() }
-        val effectiveCleanTitle = TextNormalizer.normalize(cleanTitle).trim().ifBlank { cleanTitle }
         return buildList {
-            add(listOf(effectiveTitle, artistText, album).filter(String::isNotBlank).joinToString(" "))
-            add(listOf(effectiveTitle, artistText).filter(String::isNotBlank).joinToString(" "))
-            add(listOf(effectiveCleanTitle, artistText).filter(String::isNotBlank).joinToString(" "))
-            add(listOf(effectiveCleanTitle, album).filter(String::isNotBlank).joinToString(" "))
-            add(effectiveCleanTitle)
-            // 标题归一化为空但原始标题非空：用原始标题兜底（部分平台能处理特殊符号）
-            if (effectiveTitle.isBlank() && title.isNotBlank()) add(title.trim())
-            // 标题完全异常时，至少用艺术家名兜底搜索
-            if (effectiveTitle.isBlank() && artistText.isNotBlank()) add(artistText)
+            // 1. 原始标题 + 第一艺术家（最精确，保留原始拼写和符号）
+            add(listOf(title.trim(), primaryArtist).filter(String::isNotBlank).joinToString(" "))
+            // 2. 清理后标题 + 第一艺术家（移除 feat./from 等，搜索引擎友好）
+            if (cleanTitle.isNotBlank() && cleanTitle != title.trim()) {
+                add(listOf(cleanTitle, primaryArtist).filter(String::isNotBlank).joinToString(" "))
+            }
+            // 3. 清理后标题 + 所有艺术家
+            add(listOf(cleanTitle, artistText).filter(String::isNotBlank).joinToString(" "))
+            // 4. 清理后标题 + 专辑
+            if (album.isNotBlank()) add(listOf(cleanTitle, album).filter(String::isNotBlank).joinToString(" "))
+            // 5. 仅清理后标题
+            if (cleanTitle.isNotBlank()) add(cleanTitle)
+            // 6. 仅原始标题（兜底，部分平台能处理特殊符号）
+            if (title.trim().isNotBlank() && title.trim() != cleanTitle) add(title.trim())
+            // 7. 标题异常时用艺术家名兜底
+            if (cleanTitle.isBlank() && artistText.isNotBlank()) add(artistText)
         }.map(String::trim).filter(String::isNotBlank).distinct()
     }
 

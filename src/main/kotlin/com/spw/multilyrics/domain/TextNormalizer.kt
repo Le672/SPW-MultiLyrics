@@ -14,11 +14,15 @@ object TextNormalizer {
     )
     // 仅删除“版本标注型”括号尾注（如 "(Live)" "(Remix)" "(Official Video)"），保留歌名主体的括号内容
     private val versionBracketRegex = Regex(
-        """\s*[\[【(（]\s*(?i:official\s*(?:video|audio|mv)|lyrics?\s*video|live|现场版?|remix|remaster(?:ed)?|acoustic|cover|instrumental|inst\.?|off\s*vocal|karaoke|伴奏|纯音乐|翻唱|完整版|radio\s*edit|sped\s*up|slowed|mv|mv版)\s*[\]】)）]\s*""",
+        """\s*[\[【(（]\s*(?i:official\s*(?:video|audio|mv)|lyrics?\s*video|live|现场版?|remix|remaster(?:ed)?|acoustic|cover|instrumental|inst\.?|off\s*vocal|karaoke|伴奏|纯音乐|翻唱|完整版|radio\s*edit|sped\s*up|slowed|mv|mv版|from\s+.+)\s*[\]】)）]\s*""",
     )
     private val punctuationRegex = Regex("""[^\p{L}\p{N}]+""")
     private val artistSplitRegex = Regex(
         """(?i)\s*(?:/|、|,|，|;|；|&|＆|\+|×|\||\bfeat(?:\.|\b)|\bft(?:\.|\b)|\bwith\b)\s*""",
+    )
+    // 标题中的合作者标注（feat./ft./with xxx），搜索时移除以避免噪音
+    private val featureArtistRegex = Regex(
+        """(?i)\s*[\[【(（]?\s*(?:feat\.?|ft\.?|featuring|with)\s+.+?[\]】)）]?\s*$""",
     )
     // CJK 统一表意文字范围（含扩展A），用于判断单字 token 是否应被索引
     private val cjkRanges = listOf(
@@ -38,6 +42,18 @@ object TextNormalizer {
         .replace(Regex("\\s+"), " ")
 
     fun compact(value: String): String = normalize(value).replace(" ", "")
+
+    /**
+     * 清理标题用于搜索关键词生成：移除合作者标注（feat./ft./with xxx）
+     * 和版本/来源括号尾注（[From xxx Movie] (Live) 等），保留歌名主体。
+     * 不做 NFKC/小写/标点清理，保留原始拼写以匹配各平台搜索引擎。
+     */
+    fun cleanSearchTitle(value: String): String = value
+        .replace(featureArtistRegex, "")
+        .replace(versionBracketRegex, " ")
+        .trim()
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
     /**
      * 将文本切分为可用于倒排索引的 token。

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.spw.multilyrics"
-version = "0.1.2"
+version = "0.1.3"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -40,7 +40,7 @@ val pluginName = "MultiLyrics"
 val pluginDescription = "为 Salt Player for Windows 从 Apple Music / 网易云 / QQ / 酷狗 / 酷我 / Spotify 等平台在线搜索并匹配歌词。"
 val pluginVersion = version
 val pluginProvider = "MultiLyrics"
-val pluginRepository = "https://github.com/Moriafly/spw-workshop-api"
+val pluginRepository = "https://github.com/Le672/SPW-MultiLyrics"
 
 tasks.named<Jar>("jar") {
     manifest {
