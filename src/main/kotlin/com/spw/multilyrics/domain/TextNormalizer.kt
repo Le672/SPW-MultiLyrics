@@ -21,8 +21,9 @@ object TextNormalizer {
         """(?i)\s*(?:/|、|,|，|;|；|&|＆|\+|×|\||\bfeat(?:\.|\b)|\bft(?:\.|\b)|\bwith\b)\s*""",
     )
     // 标题中的合作者标注（feat./ft./with xxx），搜索时移除以避免噪音
+    // \b 防止误匹配单词内部（如 "Defeat" → "De"），仅匹配独立的 feat/ft/with 关键词
     private val featureArtistRegex = Regex(
-        """(?i)\s*[\[【(（]?\s*(?:feat\.?|ft\.?|featuring|with)\s+.+?[\]】)）]?\s*$""",
+        """(?i)\s*[\[【(（]?\s*(?:\bfeat\.?|\bft\.?|\bfeaturing|\bwith)\s+.+?[\]】)）]?\s*$""",
     )
     // CJK 统一表意文字范围（含扩展A），用于判断单字 token 是否应被索引
     private val cjkRanges = listOf(
@@ -36,6 +37,7 @@ object TextNormalizer {
     fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
         .lowercase()
         .replace('’', '\'')
+        .replace(featureArtistRegex, "")
         .replace(versionBracketRegex, " ")
         .replace(punctuationRegex, " ")
         .trim()
