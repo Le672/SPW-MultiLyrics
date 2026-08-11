@@ -104,10 +104,22 @@ object MatchEngine {
         return maxOf(strongest * 0.85, balanced).coerceIn(0.0, 1.0)
     }
 
-    private fun sameMetadata(left: LyricsCandidate, right: LyricsCandidate): Boolean =
-        TextNormalizer.compact(left.title) == TextNormalizer.compact(right.title) &&
-            left.artists.map(TextNormalizer::compact).toSet() == right.artists.map(TextNormalizer::compact).toSet() &&
-            TextNormalizer.compact(left.album) == TextNormalizer.compact(right.album)
+    /**
+     * 判定两个候选项是否为“同一录音”：标题 + 艺术家一致即视为同一首作品。
+     *
+     * 同一录音常被收录进多个合辑/单曲/精选集（如 "F1 The Album" / "Discoteka 2025" /
+     * "Lose My Mind - Single"），album 字段不同不代表是不同歌曲。若把这类候选项
+     * 当作“并列歧义”会令 [decide] 拒绝全部，反而搜不到歌词。
+     * 时长显著不同（>8s）才视为不同版本/录音。
+     */
+    private fun sameMetadata(left: LyricsCandidate, right: LyricsCandidate): Boolean {
+        if (TextNormalizer.compact(left.title) != TextNormalizer.compact(right.title)) return false
+        if (left.artists.map(TextNormalizer::compact).toSet() != right.artists.map(TextNormalizer::compact).toSet()) return false
+        val ld = left.durationMs ?: 0L
+        val rd = right.durationMs ?: 0L
+        if (ld > 0 && rd > 0 && abs(ld - rd) > 8_000) return false
+        return true
+    }
 
     private fun durationSimilarity(local: Long?, remote: Long?): Double? {
         if (local == null || remote == null || local <= 0 || remote <= 0) return null
