@@ -1,0 +1,15 @@
+[versions]
+kotlin = "2.3.0"
+spw-workshop-api = "0.1.0-dev20"
+pf4j = "3.12.0"
+kotlinx-serialization-json = "1.9.0"
+
+[libraries]
+spw-workshop-api = { group = "com.github.Moriafly", name = "spw-workshop-api", version.ref = "spw-workshop-api" }
+pf4j = { group = "org.pf4j", name = "pf4j", version.ref = "pf4j" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
+
+[plugins]
+jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+jetbrains-kotlin-plugin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+jetbrains-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
