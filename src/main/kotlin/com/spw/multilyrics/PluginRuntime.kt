@@ -110,8 +110,23 @@ object PluginRuntime {
         lastSearchedKey = query.key
         lastSearchedResult = encoded
         resolved?.let { c.putLyrics(query.key, r.toCache(it)) }
-        if (encoded != null) toast("已加载歌词：${resolved.candidate.source.displayName}", s)
+        if (encoded != null) {
+            toast("已加载歌词：${resolved.candidate.source.displayName}", s)
+        } else if (s.manualSearchOnFail) {
+            // 自动搜索失败：弹出手动搜索窗口，用户可自行选择歌词并写入缓存
+            toast("未找到歌词，已打开手动搜索窗口", s)
+            openManualSearch(query, c, r)
+        }
         return encoded
+    }
+
+    /** 异步打开手动搜索窗口（独立 Swing 窗口，不阻塞 SPW 播放）。 */
+    private fun openManualSearch(query: TrackQuery, c: LyricsCache, r: LyricsResolver) {
+        Thread {
+            runCatching {
+                com.spw.multilyrics.ui.ManualSearchDialog(query, r, c).show()
+            }
+        }.apply { isDaemon = true; name = "multilyrics-manual-search" }.start()
     }
 
     private fun toQuery(mediaItem: PlaybackExtensionPoint.MediaItem): TrackQuery {

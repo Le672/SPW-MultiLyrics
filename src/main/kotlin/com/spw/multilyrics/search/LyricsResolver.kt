@@ -53,6 +53,24 @@ class LyricsResolver(
     private fun search(provider: LyricsProvider, query: TrackQuery, keywords: String): List<LyricsCandidate> =
         runCatching { provider.search(query, keywords) }.getOrDefault(emptyList())
 
+    /** 供手动搜索使用：用指定关键词在所有已启用来源中搜索，返回带来源标记的候选。 */
+    fun searchAll(query: TrackQuery, keywords: String): List<LyricsCandidate> {
+        val enabled = enabledSources()
+        val seen = mutableSetOf<String>()
+        return orderedSources.mapNotNull { source ->
+            if (source !in enabled) return@mapNotNull null
+            val provider = providers[source] ?: return@mapNotNull null
+            runCatching { provider.search(query, keywords) }.getOrDefault(emptyList())
+                .filter { seen.add("${source.name}|${it.remoteId}") }
+        }.flatten()
+    }
+
+    /** 供手动搜索使用：拉取指定候选的歌词，应用翻译/罗马音偏好后返回编码结果。 */
+    fun fetchManual(candidate: LyricsCandidate): ResolvedLyrics? {
+        val provider = providers[candidate.source] ?: return null
+        return fetch(provider, candidate)
+    }
+
     private fun fetch(provider: LyricsProvider, candidate: LyricsCandidate): ResolvedLyrics? {
         val document = runCatching { provider.fetch(candidate) }.getOrNull()
             ?.takeIf { it.lines.isNotEmpty() } ?: return null

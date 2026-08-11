@@ -20,6 +20,8 @@ class PluginSettings {
     val translation: Boolean get() = get("translation", true)
     val romanization: Boolean get() = get("romanization", false)
     val timeoutSeconds: Int get() = get("timeout_seconds", 8.0).toInt().coerceIn(3, 20)
+    /** 自动搜索失败时是否弹出手动搜索窗口。默认开启。 */
+    val manualSearchOnFail: Boolean get() = get("manual_search_on_fail", true)
 
     fun enabledSources(): Set<LyricsSource> {
         val all = LyricsSource.entries.filter { it != LyricsSource.LOCAL }
