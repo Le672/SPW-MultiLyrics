@@ -76,10 +76,17 @@ class ManualSearchDialog(
             return
         }
         AcrylicTheme.setup()
+        val appIcon = AcousticTheme.musicIcon(256).let {
+            when (it) {
+                is ImageIcon -> it.image
+                else -> null
+            }
+        }
         val f = JFrame("MultiLyrics 手动搜索").apply {
             defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
             isAlwaysOnTop = true
             contentPane = AcrylicPanel()
+            if (appIcon != null) iconImage = appIcon
             addWindowListener(object : WindowAdapter() {
                 override fun windowClosed(e: WindowEvent) { frame = null }
             })
