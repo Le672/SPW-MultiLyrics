@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.spw.multilyrics"
-version = "0.3.0"
+version = "0.3.1"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

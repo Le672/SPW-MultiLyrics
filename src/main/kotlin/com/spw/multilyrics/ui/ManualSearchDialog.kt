@@ -535,7 +535,8 @@ private class SourceStatusChip(
     private val onToggle: (LyricsSource, Boolean) -> Unit,
     var selected: Boolean = false,
 ) : JComponent() {
-    private val icon: ImageIcon? = loadIcon(status.source)
+    // 预缩放好的 16x16 图标（避免每次 paint 都 getScaledInstance，且 paintIcon 自带 ImageObserver 可正确异步绘制）
+    private val icon: ImageIcon? = loadIcon(status.source, 16)
     private val label: String = when {
         !status.enabled -> "关"
         status.error != null -> "ERR"
@@ -587,11 +588,8 @@ private class SourceStatusChip(
             g2.stroke = BasicStroke(1.5f)
             g2.draw(RoundRectangle2D.Double(0.5, 0.5, (w - 1).toDouble(), (h - 1).toDouble(), 8.0, 8.0))
         }
-        // 左侧小图标（16x16）
-        if (icon != null) {
-            val scaledImg = icon.image.getScaledInstance(16, 16, Image.SCALE_SMOOTH)
-            g2.drawImage(scaledImg, 3, 3, null)
-        }
+        // 左侧小图标（16x16，用 paintIcon 传入 this 作为 ImageObserver 确保异步加载完成时重绘）
+        icon?.paintIcon(this, g2, 3, 3)
         // 右侧标签
         g2.color = stateColor
         g2.font = AcrylicTheme.captionFont.deriveFont(Font.PLAIN, 10f)
@@ -601,7 +599,7 @@ private class SourceStatusChip(
         g2.dispose()
     }
 
-    private fun loadIcon(s: LyricsSource): ImageIcon? {
+    private fun loadIcon(s: LyricsSource, size: Int): ImageIcon? {
         val fileName = when (s) {
             LyricsSource.APPLE_MUSIC -> "applemusic.png"
             LyricsSource.QQ -> "qq.png"
@@ -612,7 +610,8 @@ private class SourceStatusChip(
             LyricsSource.LOCAL -> "local.png"
         }
         val url = javaClass.getResource("/icons/$fileName") ?: return null
-        return ImageIcon(url)
+        val scaled = ImageIcon(url).image.getScaledInstance(size, size, Image.SCALE_SMOOTH)
+        return ImageIcon(scaled)
     }
 }
 

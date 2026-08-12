@@ -1,6 +1,8 @@
 package com.spw.multilyrics.provider
 
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -35,7 +37,10 @@ class ProviderHttpClient(
     private fun send(
         url: String, method: String, contentType: String?, body: ByteArray?, headers: Map<String, String>,
     ): String {
-        val connection = URI.create(url).toURL().openConnection() as HttpURLConnection
+        // 优先使用环境变量代理（与 curl 行为对齐）：HTTPS_PROXY / HTTP_PROXY
+        // 无环境变量时 proxy == null，走默认直连，零影响
+        val connection = (proxy?.let { URI.create(url).toURL().openConnection(it) }
+            ?: URI.create(url).toURL().openConnection()) as HttpURLConnection
         try {
             connection.requestMethod = method
             connection.connectTimeout = connectTimeoutMs
@@ -64,6 +69,17 @@ class ProviderHttpClient(
 
     companion object {
         const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 MultiLyrics/0.1.0"
+
+        /** 解析环境变量代理（HTTPS_PROXY 优先，回退 HTTP_PROXY；支持大小写变体）。无则返回 null。 */
+        private val proxy: Proxy? = runCatching {
+            val raw = System.getenv("HTTPS_PROXY") ?: System.getenv("https_proxy")
+                ?: System.getenv("HTTP_PROXY") ?: System.getenv("http_proxy")
+            if (raw.isNullOrBlank()) null
+            else {
+                val u = URI(raw)
+                Proxy(Proxy.Type.HTTP, InetSocketAddress(u.host, if (u.port > 0) u.port else 80))
+            }
+        }.getOrNull()
 
         fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
 
