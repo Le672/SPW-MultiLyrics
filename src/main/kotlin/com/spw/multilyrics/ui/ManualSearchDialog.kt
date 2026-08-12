@@ -206,27 +206,40 @@ class ManualSearchDialog(
         // —— 事件 ——
         val allCandidates = mutableListOf<DisplayCandidate>()
         var lastStatuses: List<com.spw.multilyrics.search.SourceStatus> = emptyList()
+        val selectedSources = mutableSetOf<LyricsSource>()
 
         fun applySort() {
+            val filtered = if (selectedSources.isEmpty()) {
+                allCandidates
+            } else {
+                allCandidates.filter { it.candidate.source in selectedSources }
+            }
             val sorted = when (sortMode) {
-                SortMode.BY_PLATFORM -> allCandidates.sortedBy { it.candidate.source.priority }
-                SortMode.BY_SCORE -> allCandidates.sortedByDescending { it.score?.score ?: 0.0 }
+                SortMode.BY_PLATFORM -> filtered.sortedBy { it.candidate.source.priority }
+                SortMode.BY_SCORE -> filtered.sortedByDescending { it.score?.score ?: 0.0 }
             }
             listModel.clear()
             sorted.forEach { listModel.addElement(it) }
             val n = listModel.size()
-            statusLabel.text = if (n == 0) "未找到候选，换一组关键词试试" else "找到 $n 条候选，双击或选中后点“使用选中歌词”"
+            val filterInfo = if (selectedSources.isEmpty()) "" else "（已筛选 ${selectedSources.size} 个平台）"
+            statusLabel.text = if (n == 0) "未找到候选，换一组关键词试试" else "找到 $n 条候选$filterInfo，双击或选中后点“使用选中歌词”"
         }
 
-        /** 刷新源状态徽章栏。 */
+        /** 刷新源状态徽章栏。有候选的徽章可点击切换筛选。 */
         fun applySourceStatus(statuses: List<com.spw.multilyrics.search.SourceStatus>) {
             sourceStatusPanel.removeAll()
             for (st in statuses) {
-                val badge = SourceStatusChip(st)
+                val isSelected = st.source in selectedSources
+                val badge = SourceStatusChip(st, onToggle = { src, sel ->
+                    if (sel) selectedSources.add(src) else selectedSources.remove(src)
+                    applySort()
+                    applySourceStatus(lastStatuses)
+                }, selected = isSelected)
                 badge.toolTipText = when {
                     !st.enabled -> "${st.source.displayName}：已禁用"
                     st.error != null -> "${st.source.displayName}：${st.error}"
-                    else -> "${st.source.displayName}：${st.candidates} 条候选"
+                    st.candidates == 0 -> "${st.source.displayName}：无候选"
+                    else -> "${st.source.displayName}：${st.candidates} 条候选（点击筛选）"
                 }
                 sourceStatusPanel.add(badge)
             }
@@ -243,6 +256,7 @@ class ManualSearchDialog(
             statusLabel.text = "搜索中…"
             listModel.clear()
             allCandidates.clear()
+            selectedSources.clear()
             searchBtn.isEnabled = false
             object : SwingWorker<Pair<List<DisplayCandidate>, List<com.spw.multilyrics.search.SourceStatus>>, DisplayCandidate>() {
                 override fun doInBackground(): Pair<List<DisplayCandidate>, List<com.spw.multilyrics.search.SourceStatus>> {
@@ -403,7 +417,8 @@ private class CandidateCard(
     private val selected: Boolean,
 ) : JPanel(BorderLayout(10, 0)) {
     init {
-        isOpaque = false
+        isOpaque = true
+        background = AcrylicTheme.backgroundOpaque
         border = BorderFactory.createEmptyBorder(7, 12, 7, 12)
         val badge = SourceBadge(candidate.source)
         add(badge, BorderLayout.WEST)
@@ -513,9 +528,13 @@ private class SourceBadge(private val source: LyricsSource) : JComponent() {
 
 /**
  * 源状态徽章：小图标 + 状态标签（候选数 / 错误 / 已禁用）。
- * 错误用红色文字，正常用绿色，禁用用灰色。
+ * 有候选时可点击切换筛选（多选 toggle）；错误/禁用/无候选时不可点击。
  */
-private class SourceStatusChip(private val status: com.spw.multilyrics.search.SourceStatus) : JComponent() {
+private class SourceStatusChip(
+    val status: com.spw.multilyrics.search.SourceStatus,
+    private val onToggle: (LyricsSource, Boolean) -> Unit,
+    var selected: Boolean = false,
+) : JComponent() {
     private val icon: ImageIcon? = loadIcon(status.source)
     private val label: String = when {
         !status.enabled -> "关"
@@ -529,7 +548,24 @@ private class SourceStatusChip(private val status: com.spw.multilyrics.search.So
         status.candidates == 0 -> Color(0xAA, 0xAA, 0xAA)
         else -> Color(0x4C, 0xAF, 0x50)
     }
-    init { preferredSize = Dimension(48, 22) }
+    private val clickable: Boolean = status.enabled && status.error == null && status.candidates > 0
+    private var hover = false
+
+    init {
+        preferredSize = Dimension(48, 22)
+        if (clickable) {
+            cursor = Cursor(Cursor.HAND_CURSOR)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    selected = !selected
+                    onToggle(status.source, selected)
+                    repaint()
+                }
+                override fun mouseEntered(e: MouseEvent) { hover = true; repaint() }
+                override fun mouseExited(e: MouseEvent) { hover = false; repaint() }
+            })
+        }
+    }
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
@@ -538,9 +574,19 @@ private class SourceStatusChip(private val status: com.spw.multilyrics.search.So
         g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
         val w = width
         val h = height
-        // 半透明圆角背景
-        g2.color = Color(255, 255, 255, 18)
+        // 背景：选中态高亮，hover 时提亮，否则半透明
+        when {
+            selected -> g2.color = AcrylicTheme.tintedAccent(0x55)
+            hover && clickable -> g2.color = Color(255, 255, 255, 35)
+            else -> g2.color = Color(255, 255, 255, 18)
+        }
         g2.fill(RoundRectangle2D.Double(0.0, 0.0, w.toDouble(), h.toDouble(), 8.0, 8.0))
+        // 选中态边框
+        if (selected) {
+            g2.color = AcrylicTheme.accent
+            g2.stroke = BasicStroke(1.5f)
+            g2.draw(RoundRectangle2D.Double(0.5, 0.5, (w - 1).toDouble(), (h - 1).toDouble(), 8.0, 8.0))
+        }
         // 左侧小图标（16x16）
         if (icon != null) {
             val scaledImg = icon.image.getScaledInstance(16, 16, Image.SCALE_SMOOTH)
