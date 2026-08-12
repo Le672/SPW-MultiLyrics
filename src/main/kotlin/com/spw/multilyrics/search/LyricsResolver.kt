@@ -54,15 +54,37 @@ class LyricsResolver(
         runCatching { provider.search(query, keywords) }.getOrDefault(emptyList())
 
     /** 供手动搜索使用：用指定关键词在所有已启用来源中搜索，返回带来源标记的候选。 */
-    fun searchAll(query: TrackQuery, keywords: String): List<LyricsCandidate> {
+    fun searchAll(query: TrackQuery, keywords: String): List<LyricsCandidate> =
+        searchAllWithStatus(query, keywords).candidates
+
+    /** 供手动搜索使用：搜索并返回每个源的状态（成功/失败/错误信息），便于 UI 展示。 */
+    fun searchAllWithStatus(query: TrackQuery, keywords: String): SearchAllResult {
         val enabled = enabledSources()
         val seen = mutableSetOf<String>()
-        return orderedSources.mapNotNull { source ->
-            if (source !in enabled) return@mapNotNull null
-            val provider = providers[source] ?: return@mapNotNull null
-            runCatching { provider.search(query, keywords) }.getOrDefault(emptyList())
-                .filter { seen.add("${source.name}|${it.remoteId}") }
-        }.flatten()
+        val candidates = mutableListOf<LyricsCandidate>()
+        val statuses = mutableListOf<SourceStatus>()
+        for (source in orderedSources) {
+            if (source !in enabled) {
+                statuses.add(SourceStatus(source, enabled = false, candidates = 0, error = null))
+                continue
+            }
+            val provider = providers[source]
+            if (provider == null) {
+                statuses.add(SourceStatus(source, enabled = true, candidates = 0, error = "未注册"))
+                continue
+            }
+            val result = runCatching { provider.search(query, keywords) }
+            result.onSuccess { list ->
+                val filtered = list.filter { seen.add("${source.name}|${it.remoteId}") }
+                candidates.addAll(filtered)
+                statuses.add(SourceStatus(source, enabled = true, candidates = filtered.size, error = null))
+            }.onFailure { e ->
+                val root = generateSequence(e) { it.cause }.lastOrNull() ?: e
+                val msg = root.message?.take(80)?.ifBlank { root.javaClass.simpleName } ?: root.javaClass.simpleName
+                statuses.add(SourceStatus(source, enabled = true, candidates = 0, error = "${root.javaClass.simpleName}: $msg"))
+            }
+        }
+        return SearchAllResult(candidates.toList(), statuses.toList())
     }
 
     /** 供手动搜索使用：拉取指定候选的歌词，应用翻译/罗马音偏好后返回编码结果。 */
@@ -100,3 +122,17 @@ class LyricsResolver(
         savedAtEpochMs = clock.millis(),
     )
 }
+
+/** 单个来源的搜索状态。 */
+data class SourceStatus(
+    val source: LyricsSource,
+    val enabled: Boolean,
+    val candidates: Int,
+    val error: String?,
+)
+
+/** 搜索聚合结果：候选列表 + 各源状态。 */
+data class SearchAllResult(
+    val candidates: List<LyricsCandidate>,
+    val statuses: List<SourceStatus>,
+)

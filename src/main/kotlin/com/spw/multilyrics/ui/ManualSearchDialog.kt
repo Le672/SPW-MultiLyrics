@@ -134,19 +134,28 @@ class ManualSearchDialog(
             add(searchBtn, BorderLayout.EAST)
         }
 
-        // —— 排序工具栏 ——
+        // —— 排序工具栏 + 源状态 ——
         var sortMode = SortMode.BY_SCORE
         val sortByPlatformBtn = SortToggleButton("按平台")
         val sortByScoreBtn = SortToggleButton("按匹配度", active = true)
-        val sortToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+        // 源状态栏：每个源一个小徽章，显示候选数或错误状态
+        val sourceStatusPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+            isOpaque = false
+        }
+        val sortToolbar = JPanel(BorderLayout()).apply {
             isOpaque = false
             border = BorderFactory.createEmptyBorder(0, 16, 8, 20)
-            add(JLabel("排序：").apply {
-                font = AcrylicTheme.captionFont
-                foreground = AcrylicTheme.textSecondary
-            })
-            add(sortByPlatformBtn)
-            add(sortByScoreBtn)
+            val left = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                isOpaque = false
+                add(JLabel("排序：").apply {
+                    font = AcrylicTheme.captionFont
+                    foreground = AcrylicTheme.textSecondary
+                })
+                add(sortByPlatformBtn)
+                add(sortByScoreBtn)
+            }
+            add(left, BorderLayout.WEST)
+            add(sourceStatusPanel, BorderLayout.CENTER)
         }
 
         // —— 候选列表 ——
@@ -196,6 +205,7 @@ class ManualSearchDialog(
 
         // —— 事件 ——
         val allCandidates = mutableListOf<DisplayCandidate>()
+        var lastStatuses: List<com.spw.multilyrics.search.SourceStatus> = emptyList()
 
         fun applySort() {
             val sorted = when (sortMode) {
@@ -208,6 +218,22 @@ class ManualSearchDialog(
             statusLabel.text = if (n == 0) "未找到候选，换一组关键词试试" else "找到 $n 条候选，双击或选中后点“使用选中歌词”"
         }
 
+        /** 刷新源状态徽章栏。 */
+        fun applySourceStatus(statuses: List<com.spw.multilyrics.search.SourceStatus>) {
+            sourceStatusPanel.removeAll()
+            for (st in statuses) {
+                val badge = SourceStatusChip(st)
+                badge.toolTipText = when {
+                    !st.enabled -> "${st.source.displayName}：已禁用"
+                    st.error != null -> "${st.source.displayName}：${st.error}"
+                    else -> "${st.source.displayName}：${st.candidates} 条候选"
+                }
+                sourceStatusPanel.add(badge)
+            }
+            sourceStatusPanel.revalidate()
+            sourceStatusPanel.repaint()
+        }
+
         fun doSearch() {
             val keywords = searchField.text.trim()
             if (keywords.isEmpty()) {
@@ -218,18 +244,21 @@ class ManualSearchDialog(
             listModel.clear()
             allCandidates.clear()
             searchBtn.isEnabled = false
-            object : SwingWorker<List<DisplayCandidate>, DisplayCandidate>() {
-                override fun doInBackground(): List<DisplayCandidate> {
+            object : SwingWorker<Pair<List<DisplayCandidate>, List<com.spw.multilyrics.search.SourceStatus>>, DisplayCandidate>() {
+                override fun doInBackground(): Pair<List<DisplayCandidate>, List<com.spw.multilyrics.search.SourceStatus>> {
                     val tmp = mutableListOf<DisplayCandidate>()
-                    runCatching {
-                        resolver.searchAll(query, keywords).forEach { c ->
+                    val statuses: List<com.spw.multilyrics.search.SourceStatus> = runCatching {
+                        resolver.searchAllWithStatus(query, keywords)
+                    }.getOrNull()?.let { result ->
+                        result.candidates.forEach { c ->
                             val score = runCatching { MatchEngine.score(query, c) }.getOrNull()
                             val dc = DisplayCandidate(c, score)
                             tmp.add(dc)
                             publish(dc)
                         }
-                    }
-                    return tmp
+                        result.statuses
+                    } ?: emptyList()
+                    return tmp.toList() to statuses
                 }
                 override fun process(chunks: List<DisplayCandidate>) {
                     allCandidates.addAll(chunks)
@@ -237,6 +266,11 @@ class ManualSearchDialog(
                 }
                 override fun done() {
                     searchBtn.isEnabled = true
+                    val result = runCatching { get() }.getOrNull()
+                    val list = result?.first.orEmpty()
+                    val statuses = result?.second.orEmpty()
+                    lastStatuses = statuses
+                    applySourceStatus(statuses)
                     applySort()
                 }
             }.execute()
@@ -474,6 +508,65 @@ private class SourceBadge(private val source: LyricsSource) : JComponent() {
         val url = javaClass.getResource("/icons/$fileName") ?: return null
         val scaled = ImageIcon(url).image.getScaledInstance(36, 36, Image.SCALE_SMOOTH)
         return ImageIcon(scaled)
+    }
+}
+
+/**
+ * 源状态徽章：小图标 + 状态标签（候选数 / 错误 / 已禁用）。
+ * 错误用红色文字，正常用绿色，禁用用灰色。
+ */
+private class SourceStatusChip(private val status: com.spw.multilyrics.search.SourceStatus) : JComponent() {
+    private val icon: ImageIcon? = loadIcon(status.source)
+    private val label: String = when {
+        !status.enabled -> "关"
+        status.error != null -> "ERR"
+        status.candidates == 0 -> "0"
+        else -> status.candidates.toString()
+    }
+    private val stateColor: Color = when {
+        !status.enabled -> Color(0x88, 0x88, 0x88)
+        status.error != null -> Color(0xE5, 0x4D, 0x4D)
+        status.candidates == 0 -> Color(0xAA, 0xAA, 0xAA)
+        else -> Color(0x4C, 0xAF, 0x50)
+    }
+    init { preferredSize = Dimension(48, 22) }
+
+    override fun paintComponent(g: Graphics) {
+        super.paintComponent(g)
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        val w = width
+        val h = height
+        // 半透明圆角背景
+        g2.color = Color(255, 255, 255, 18)
+        g2.fill(RoundRectangle2D.Double(0.0, 0.0, w.toDouble(), h.toDouble(), 8.0, 8.0))
+        // 左侧小图标（16x16）
+        if (icon != null) {
+            val scaledImg = icon.image.getScaledInstance(16, 16, Image.SCALE_SMOOTH)
+            g2.drawImage(scaledImg, 3, 3, null)
+        }
+        // 右侧标签
+        g2.color = stateColor
+        g2.font = AcrylicTheme.captionFont.deriveFont(Font.PLAIN, 10f)
+        val fm = g2.fontMetrics
+        val textW = fm.stringWidth(label)
+        g2.drawString(label, w - textW - 5, (h - fm.height) / 2 + fm.ascent)
+        g2.dispose()
+    }
+
+    private fun loadIcon(s: LyricsSource): ImageIcon? {
+        val fileName = when (s) {
+            LyricsSource.APPLE_MUSIC -> "applemusic.png"
+            LyricsSource.QQ -> "qq.png"
+            LyricsSource.NETEASE -> "netease.png"
+            LyricsSource.KUGOU -> "kugou.png"
+            LyricsSource.KUWO -> "kuwo.png"
+            LyricsSource.SPOTIFY -> "spotify.png"
+            LyricsSource.LOCAL -> "local.png"
+        }
+        val url = javaClass.getResource("/icons/$fileName") ?: return null
+        return ImageIcon(url)
     }
 }
 

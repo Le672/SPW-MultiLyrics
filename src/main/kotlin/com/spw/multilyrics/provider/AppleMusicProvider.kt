@@ -35,13 +35,29 @@ class AppleMusicProvider(
         index.search(query, keywords, limit)
 
     override fun fetch(candidate: LyricsCandidate): LyricsDocument? = runCatching {
-        val url = candidate.context["url"] ?: "$RAW_BASE/${candidate.remoteId}.ttml"
-        ttml.parse(http.get(url), source)
+        // 候选 context["url"] 是原始 GitHub raw URL，国内可能不可达
+        // 改为根据 remoteId 在多个镜像 base 间尝试
+        val ttmlPath = "${candidate.remoteId}.ttml"
+        val body = RAW_MIRRORS_BASES.firstNotNullOfOrNull { base ->
+            runCatching { http.get("$base/$ttmlPath") }.getOrNull()
+        } ?: return@runCatching null
+        ttml.parse(body, source)
     }.getOrNull()?.takeIf { it.lines.isNotEmpty() }
 
     companion object {
         const val INDEX_URL = "https://raw.githubusercontent.com/amll-dev/amll-ttml-db/main/am-lyrics/index.jsonl"
         const val RAW_BASE = "https://raw.githubusercontent.com/amll-dev/amll-ttml-db/main/am-lyrics"
+        // GitHub raw 国内访问不稳定，jsdelivr 镜像作为 fallback（顺序即优先级）
+        val INDEX_MIRRORS = listOf(
+            INDEX_URL,
+            "https://cdn.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/am-lyrics/index.jsonl",
+            "https://fastly.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/am-lyrics/index.jsonl",
+        )
+        val RAW_MIRRORS_BASES = listOf(
+            RAW_BASE,
+            "https://cdn.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/am-lyrics",
+            "https://fastly.jsdelivr.net/gh/amll-dev/amll-ttml-db@main/am-lyrics",
+        )
     }
 }
 
@@ -96,8 +112,11 @@ internal class AmllIndexStore(
     }
 
     private fun refresh() {
+        // 依次尝试 GitHub raw 与 jsdelivr 镜像，第一个成功的胜出
+        val content = AppleMusicProvider.INDEX_MIRRORS.firstNotNullOfOrNull { url ->
+            runCatching { http.get(url) }.getOrNull()?.takeIf(String::isNotBlank)
+        } ?: return
         runCatching {
-            val content = http.get(AppleMusicProvider.INDEX_URL)
             val temp = Files.createTempFile(root, "amll-index", ".tmp")
             Files.writeString(temp, content, StandardCharsets.UTF_8)
             try {
@@ -139,6 +158,7 @@ internal data class AmllRecord(
         artists = artists,
         album = album,
         qualityHint = LyricsQuality.WORD_SYNCED,
-        context = mapOf("url" to "${AppleMusicProvider.RAW_BASE}/$id.ttml"),
+        // 不再写死 url，fetch 时会在多个镜像 base 间尝试
+        context = emptyMap(),
     )
 }
