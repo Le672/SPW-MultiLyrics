@@ -87,7 +87,7 @@ class ManualSearchDialog(
         frame = f
 
         // —— 顶部标题栏 ——
-        val iconLabel = JLabel(AcousticTheme.musicIcon(28))
+        val iconLabel = JLabel(AcousticTheme.musicIcon(36))
         val titleLabel = JLabel("手动搜索歌词").apply {
             font = AcrylicTheme.titleFont
             foreground = AcrylicTheme.textPrimary
@@ -161,6 +161,7 @@ class ManualSearchDialog(
             viewport.isOpaque = true
             viewport.background = AcrylicTheme.backgroundOpaque
             border = BorderFactory.createEmptyBorder(0, 12, 0, 12)
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             verticalScrollBar.setUI(AcousticScrollBarUI())
             horizontalScrollBar.setUI(AcousticScrollBarUI())
         }
@@ -553,7 +554,7 @@ private class SortToggleButton(text: String, var active: Boolean = false) : JBut
     }
 }
 
-/** 细滚动条。 */
+/** 细滚动条：超窄轨道 + 半透明圆角滑块。 */
 private class AcousticScrollBarUI : BasicScrollBarUI() {
     override fun configureScrollBarColors() {
         trackColor = Color(0, 0, 0, 0)
@@ -568,6 +569,26 @@ private class AcousticScrollBarUI : BasicScrollBarUI() {
     private fun emptyButton(): JButton = JButton().apply {
         preferredSize = Dimension(0, 0)
         isVisible = false
+    }
+    // 滚动条宽度收窄到 6px
+    override fun getPreferredSize(c: JComponent?): Dimension =
+        if (scrollbar.orientation == javax.swing.JScrollBar.VERTICAL) Dimension(6, 32)
+        else Dimension(32, 6)
+    // 圆角滑块
+    override fun paintThumb(g: Graphics, c: JComponent?, thumbBounds: java.awt.Rectangle) {
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.color = Color(255, 255, 255, 60)
+        val w = thumbBounds.width.toFloat()
+        val h = thumbBounds.height.toFloat()
+        g2.fill(RoundRectangle2D.Float(
+            thumbBounds.x.toFloat(), thumbBounds.y.toFloat(), w, h,
+            minOf(w, h) / 2, minOf(w, h) / 2,
+        ))
+        g2.dispose()
+    }
+    override fun paintTrack(g: Graphics, c: JComponent?, trackBounds: java.awt.Rectangle) {
+        // 完全透明轨道
     }
     override fun setThumbBounds(x: Int, y: Int, w: Int, h: Int) {
         super.setThumbBounds(x, y, w, h)
@@ -640,7 +661,7 @@ private infix fun Color.translucent(alpha: Int): Color =
     Color(red, green, blue, alpha.coerceIn(0, 255))
 
 /**
- * 绘制内联音乐图标（双八分音符），无需外部资源。
+ * 应用图标：渐变圆角底 + 白色简约八分音符（Path2D 精绘）。
  */
 private object AcousticTheme {
     fun musicIcon(size: Int): Icon {
@@ -649,26 +670,39 @@ private object AcousticTheme {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
         val s = size.toFloat()
-        // 渐变填充
-        g.paint = GradientPaint(0f, 0f, Color(0x8F, 0xCB, 0xF9), s, s, Color(0x4A, 0x90, 0xD9))
-        g.fill(RoundRectangle2D.Float(0f, 0f, s, s, s * 0.28f, s * 0.28f))
-        // 音符（白色）
+        // 渐变圆角底（左上亮蓝 -> 右下深蓝）
+        g.paint = GradientPaint(0f, 0f, Color(0x8F, 0xCB, 0xF9), s, s, Color(0x3A, 0x7B, 0xD5))
+        g.fill(RoundRectangle2D.Float(0f, 0f, s, s, s * 0.30f, s * 0.30f))
+        // 白色八分音符：椭圆音头 + 竖杆 + 旗
         g.color = Color.WHITE
-        g.stroke = BasicStroke(s * 0.09f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        // 左音符
-        val lx = s * 0.28f
-        val ly = s * 0.68f
-        g.fillOval((lx - s * 0.12f).toInt(), (ly - s * 0.07f).toInt(), (s * 0.24f).toInt(), (s * 0.18f).toInt())
-        g.drawLine((lx + s * 0.12f).toInt(), (ly - s * 0.05f).toInt(), (lx + s * 0.12f).toInt(), (s * 0.28f).toInt())
-        // 右音符
-        val rx = s * 0.58f
-        val ry = s * 0.60f
-        g.fillOval((rx - s * 0.12f).toInt(), (ry - s * 0.07f).toInt(), (s * 0.24f).toInt(), (s * 0.18f).toInt())
-        g.drawLine((rx + s * 0.12f).toInt(), (ry - s * 0.05f).toInt(), (rx + s * 0.12f).toInt(), (s * 0.20f).toInt())
-        // 连接横梁
-        val beamY = s * 0.22f
-        g.drawLine((lx + s * 0.12f).toInt(), beamY.toInt(), (rx + s * 0.12f).toInt(), beamY.toInt())
-        g.drawLine((lx + s * 0.12f).toInt(), (beamY + s * 0.10f).toInt(), (rx + s * 0.12f).toInt(), (beamY + s * 0.10f).toInt())
+        // 音头（倾斜椭圆，更精致）
+        val headCx = s * 0.38f
+        val headCy = s * 0.68f
+        val headRx = s * 0.14f
+        val headRy = s * 0.10f
+        val head = java.awt.geom.Ellipse2D.Float(headCx - headRx, headCy - headRy, headRx * 2, headRy * 2)
+        // 旋转 -20 度让音头倾斜
+        val transform = java.awt.geom.AffineTransform.getRotateInstance(
+            Math.toRadians(-20.0), headCx.toDouble(), headCy.toDouble(),
+        )
+        g.fill(transform.createTransformedShape(head))
+        // 竖杆（从音头右上延伸到顶部）
+        val stem = java.awt.geom.Path2D.Float()
+        stem.moveTo(headCx + headRx * 0.85f, headCy - headRy * 0.5f)
+        stem.lineTo(headCx + headRx * 0.85f, s * 0.22f)
+        g.stroke = BasicStroke(s * 0.075f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        g.draw(stem)
+        // 旗（从杆顶向右下弯曲）
+        val flag = java.awt.geom.Path2D.Float()
+        flag.moveTo(headCx + headRx * 0.85f, s * 0.22f)
+        flag.curveTo(
+            s * 0.70f, s * 0.26f,
+            s * 0.72f, s * 0.40f,
+            s * 0.66f, s * 0.48f,
+        )
+        flag.lineTo(headCx + headRx * 0.85f, s * 0.42f)
+        flag.closePath()
+        g.fill(flag)
         g.dispose()
         return ImageIcon(img)
     }
