@@ -143,12 +143,13 @@ class ManualSearchDialog(
         }
 
         // —— 候选列表 ——
+        // JList 必须不透明，否则滚动时 blitting 优化会导致重影（旧像素残留）
         val listModel = DefaultListModel<DisplayCandidate>()
         val list = JList(listModel).apply {
             selectionMode = ListSelectionModel.SINGLE_SELECTION
             visibleRowCount = 12
             font = AcrylicTheme.bodyFont
-            background = Color(0, 0, 0, 0)
+            background = AcrylicTheme.backgroundOpaque
             selectionBackground = AcrylicTheme.tintedAccent(0x33)
             selectionForeground = AcrylicTheme.textPrimary
             foreground = AcrylicTheme.textPrimary
@@ -157,7 +158,8 @@ class ManualSearchDialog(
         }
         val scrollPane = JScrollPane(list).apply {
             isOpaque = false
-            viewport.isOpaque = false
+            viewport.isOpaque = true
+            viewport.background = AcrylicTheme.backgroundOpaque
             border = BorderFactory.createEmptyBorder(0, 12, 0, 12)
             verticalScrollBar.setUI(AcousticScrollBarUI())
             horizontalScrollBar.setUI(AcousticScrollBarUI())
@@ -600,6 +602,7 @@ private object AcrylicTheme {
 
     // 亚克力深色主题
     val background: Color = Color(0x1F, 0x1F, 0x23, 235)       // 近黑半透明
+    val backgroundOpaque: Color = Color(0x1F, 0x1F, 0x23)      // 不透明版（用于 JList 避免滚动重影）
     val textPrimary: Color = Color(0xF2, 0xF2, 0xF2)
     val textSecondary: Color = Color(0xB0, 0xB0, 0xB8)
     val accent: Color = Color(0x6C, 0xB4, 0xF7)                // 亚克力蓝
