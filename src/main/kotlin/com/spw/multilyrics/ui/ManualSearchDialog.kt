@@ -1,7 +1,9 @@
 package com.spw.multilyrics.ui
 
+import com.spw.multilyrics.domain.CandidateScore
 import com.spw.multilyrics.domain.LyricsCandidate
 import com.spw.multilyrics.domain.LyricsSource
+import com.spw.multilyrics.domain.MatchEngine
 import com.spw.multilyrics.domain.TrackQuery
 import com.spw.multilyrics.search.LyricsResolver
 import com.spw.multilyrics.storage.LyricsCache
@@ -11,6 +13,7 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.GradientPaint
 import java.awt.Graphics
@@ -113,16 +116,30 @@ class ManualSearchDialog(
                 foreground = AcrylicTheme.textPrimary
                 background = AcrylicTheme.inputBg
                 caretColor = AcrylicTheme.textPrimary
-                border = AcrylicTheme.inputBorder
-                preferredSize = Dimension(420, 34)
+                border = BorderFactory.createEmptyBorder(10, 12, 10, 12)
             }
         }
         val searchBtn = AcrylicButton("搜索", primary = true)
         val searchBar = JPanel(BorderLayout(8, 0)).apply {
             isOpaque = false
-            border = BorderFactory.createEmptyBorder(0, 20, 10, 20)
+            border = BorderFactory.createEmptyBorder(0, 20, 8, 20)
             add(searchField, BorderLayout.CENTER)
             add(searchBtn, BorderLayout.EAST)
+        }
+
+        // —— 排序工具栏 ——
+        var sortMode = SortMode.BY_SCORE
+        val sortByPlatformBtn = SortToggleButton("按平台")
+        val sortByScoreBtn = SortToggleButton("按匹配度", active = true)
+        val sortToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+            isOpaque = false
+            border = BorderFactory.createEmptyBorder(0, 16, 8, 20)
+            add(JLabel("排序：").apply {
+                font = AcrylicTheme.captionFont
+                foreground = AcrylicTheme.textSecondary
+            })
+            add(sortByPlatformBtn)
+            add(sortByScoreBtn)
         }
 
         // —— 候选列表 ——
@@ -136,7 +153,7 @@ class ManualSearchDialog(
             selectionForeground = AcrylicTheme.textPrimary
             foreground = AcrylicTheme.textPrimary
             cellRenderer = CandidateRenderer()
-            fixedCellHeight = 56
+            fixedCellHeight = 60
         }
         val scrollPane = JScrollPane(list).apply {
             isOpaque = false
@@ -168,6 +185,19 @@ class ManualSearchDialog(
         }
 
         // —— 事件 ——
+        val allCandidates = mutableListOf<DisplayCandidate>()
+
+        fun applySort() {
+            val sorted = when (sortMode) {
+                SortMode.BY_PLATFORM -> allCandidates.sortedBy { it.candidate.source.priority }
+                SortMode.BY_SCORE -> allCandidates.sortedByDescending { it.score?.score ?: 0.0 }
+            }
+            listModel.clear()
+            sorted.forEach { listModel.addElement(it) }
+            val n = listModel.size()
+            statusLabel.text = if (n == 0) "未找到候选，换一组关键词试试" else "找到 $n 条候选，双击或选中后点“使用选中歌词”"
+        }
+
         fun doSearch() {
             val keywords = searchField.text.trim()
             if (keywords.isEmpty()) {
@@ -176,31 +206,50 @@ class ManualSearchDialog(
             }
             statusLabel.text = "搜索中…"
             listModel.clear()
+            allCandidates.clear()
             searchBtn.isEnabled = false
             object : SwingWorker<List<DisplayCandidate>, DisplayCandidate>() {
                 override fun doInBackground(): List<DisplayCandidate> {
                     val tmp = mutableListOf<DisplayCandidate>()
                     runCatching {
                         resolver.searchAll(query, keywords).forEach { c ->
-                            tmp.add(DisplayCandidate(c))
-                            publish(DisplayCandidate(c))
+                            val score = runCatching { MatchEngine.score(query, c) }.getOrNull()
+                            val dc = DisplayCandidate(c, score)
+                            tmp.add(dc)
+                            publish(dc)
                         }
                     }
                     return tmp
                 }
                 override fun process(chunks: List<DisplayCandidate>) {
-                    chunks.forEach { listModel.addElement(it) }
+                    allCandidates.addAll(chunks)
+                    applySort()
                 }
                 override fun done() {
                     searchBtn.isEnabled = true
-                    val n = listModel.size()
-                    statusLabel.text = if (n == 0) "未找到候选，换一组关键词试试" else "找到 $n 条候选，双击或选中后点“使用选中歌词”"
+                    applySort()
                 }
             }.execute()
         }
 
         searchField.addActionListener { doSearch() }
         searchBtn.addActionListener { doSearch() }
+        sortByPlatformBtn.addActionListener {
+            if (sortMode != SortMode.BY_PLATFORM) {
+                sortMode = SortMode.BY_PLATFORM
+                sortByPlatformBtn.active = true
+                sortByScoreBtn.active = false
+                applySort()
+            }
+        }
+        sortByScoreBtn.addActionListener {
+            if (sortMode != SortMode.BY_SCORE) {
+                sortMode = SortMode.BY_SCORE
+                sortByScoreBtn.active = true
+                sortByPlatformBtn.active = false
+                applySort()
+            }
+        }
         list.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 if (e.clickCount >= 2) useBtn.doClick()
@@ -235,17 +284,23 @@ class ManualSearchDialog(
         val contentPane = f.contentPane as AcrylicPanel
         contentPane.setLayout(BorderLayout())
         contentPane.add(header, BorderLayout.NORTH)
-        contentPane.add(searchBar, BorderLayout.SOUTH)
+        // 搜索栏 + 排序栏放在列表上方
+        val topPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(searchBar, BorderLayout.NORTH)
+            add(sortToolbar, BorderLayout.SOUTH)
+        }
         val center = JPanel(BorderLayout()).apply {
             isOpaque = false
             border = BorderFactory.createEmptyBorder(0, 0, 0, 0)
+            add(topPanel, BorderLayout.NORTH)
             add(scrollPane, BorderLayout.CENTER)
             add(footer, BorderLayout.SOUTH)
         }
         contentPane.add(center, BorderLayout.CENTER)
 
-        f.setSize(620, 540)
-        f.minimumSize = Dimension(520, 420)
+        f.setSize(620, 580)
+        f.minimumSize = Dimension(520, 440)
         f.setLocationRelativeTo(null)
         f.isVisible = true
 
@@ -272,33 +327,40 @@ class ManualSearchDialog(
     }
 }
 
+/** 排序模式。 */
+private enum class SortMode { BY_PLATFORM, BY_SCORE }
+
 /** 候选项包装：供渲染器与 SwingWorker 共享。 */
-internal data class DisplayCandidate(val candidate: LyricsCandidate) {
+internal data class DisplayCandidate(
+    val candidate: LyricsCandidate,
+    val score: CandidateScore? = null,
+) {
     override fun toString(): String =
         "[${candidate.source.displayName}] ${candidate.title} — ${candidate.artists.joinToString(", ")}"
 }
 
-/** 候选项渲染器：来源色块 + 标题/艺术家/时长/专辑。 */
+/** 候选项渲染器：来源色块 + 标题/艺术家/时长/专辑 + 评分。 */
 private class CandidateRenderer : DefaultListCellRenderer() {
     override fun getListCellRendererComponent(
         list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean,
     ): Component {
         val dc = value as? DisplayCandidate
             ?: return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-        return CandidateCard(dc.candidate, isSelected).also {
-            it.preferredSize = Dimension(list?.width ?: 560, 56)
+        return CandidateCard(dc.candidate, dc.score, isSelected).also {
+            it.preferredSize = Dimension(list?.width ?: 560, 60)
         }
     }
 }
 
-/** 单条候选卡片：左侧来源色块 + 右侧标题/副信息。 */
+/** 单条候选卡片：左侧来源徽章 + 中间标题/副信息 + 右侧评分徽章。 */
 private class CandidateCard(
     candidate: LyricsCandidate,
+    private val score: CandidateScore?,
     private val selected: Boolean,
 ) : JPanel(BorderLayout(10, 0)) {
     init {
         isOpaque = false
-        border = BorderFactory.createEmptyBorder(6, 12, 6, 12)
+        border = BorderFactory.createEmptyBorder(7, 12, 7, 12)
         val badge = SourceBadge(candidate.source)
         add(badge, BorderLayout.WEST)
         val title = JLabel(candidate.title).apply {
@@ -318,6 +380,8 @@ private class CandidateCard(
             add(sub, BorderLayout.SOUTH)
         }
         add(text, BorderLayout.CENTER)
+        // 右侧评分徽章（无评分时不显示）
+        score?.let { add(ScoreBadge(it.score), BorderLayout.EAST) }
     }
 
     override fun paintComponent(g: Graphics) {
@@ -332,6 +396,40 @@ private class CandidateCard(
             g2.color = Color(255, 255, 255, 10)
         }
         g2.fill(RoundRectangle2D.Double(2.0, 2.0, (w - 4).toDouble(), (h - 4).toDouble(), 8.0, 8.0))
+        g2.dispose()
+    }
+}
+
+/** 评分徽章：圆角底 + 百分比文字，按分数着色。 */
+private class ScoreBadge(score: Double) : JComponent() {
+    private val percentage = (score * 100).toInt().coerceIn(0, 100)
+    private val color = when {
+        score >= 0.85 -> Color(0x4C, 0xAF, 0x50)   // 绿：高匹配
+        score >= 0.70 -> Color(0xFF, 0xC1, 0x07)   // 黄：中等
+        else -> Color(0xBD, 0xB6, 0xAE)            // 灰：低匹配
+    }
+    init { preferredSize = Dimension(48, 24) }
+
+    override fun paintComponent(g: Graphics) {
+        super.paintComponent(g)
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        val w = width.toDouble()
+        val h = height.toDouble()
+        // 半透明底
+        g2.color = Color(color.red, color.green, color.blue, 45)
+        g2.fill(RoundRectangle2D.Double(0.0, 0.0, w - 1.0, h - 1.0, 6.0, 6.0))
+        // 边框
+        g2.color = Color(color.red, color.green, color.blue, 120)
+        g2.stroke = BasicStroke(1f)
+        g2.draw(RoundRectangle2D.Double(0.0, 0.0, w - 1.0, h - 1.0, 6.0, 6.0))
+        // 文字
+        g2.color = color
+        g2.font = AcrylicTheme.captionFont.deriveFont(Font.BOLD, 11f)
+        val fm = g2.fontMetrics
+        val text = "${percentage}%"
+        val tw = fm.stringWidth(text)
+        g2.drawString(text, ((w - tw) / 2).toInt(), ((h - fm.height) / 2 + fm.ascent).toInt())
         g2.dispose()
     }
 }
@@ -406,6 +504,47 @@ private class AcrylicButton(text: String, private val primary: Boolean) : JButto
             g2.color = Color(255, 255, 255, 60)
             g2.stroke = BasicStroke(1f)
             g2.draw(RoundRectangle2D.Double(0.0, 0.0, (w - 1).toDouble(), (h - 1).toDouble(), radius, radius))
+        }
+        g2.dispose()
+        super.paintComponent(g)
+    }
+}
+
+/** 排序切换按钮：激活态高亮。 */
+private class SortToggleButton(text: String, var active: Boolean = false) : JButton(text) {
+    private var hover = false
+
+    init {
+        isContentAreaFilled = false
+        isFocusPainted = false
+        isBorderPainted = false
+        font = AcrylicTheme.captionFont.deriveFont(Font.PLAIN, 12f)
+        foreground = if (active) Color.WHITE else AcrylicTheme.textSecondary
+        border = BorderFactory.createEmptyBorder(4, 10, 4, 10)
+        cursor = Cursor(Cursor.HAND_CURSOR)
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) { hover = true; repaint() }
+            override fun mouseExited(e: MouseEvent) { hover = false; repaint() }
+        })
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        val w = width
+        val h = height
+        val radius = 6.0
+        if (active) {
+            g2.color = AcrylicTheme.accent
+            g2.fill(RoundRectangle2D.Double(0.0, 0.0, (w - 1).toDouble(), (h - 1).toDouble(), radius, radius))
+            foreground = Color.WHITE
+        } else {
+            g2.color = if (hover) Color(255, 255, 255, 30) else Color(255, 255, 255, 12)
+            g2.fill(RoundRectangle2D.Double(0.0, 0.0, (w - 1).toDouble(), (h - 1).toDouble(), radius, radius))
+            g2.color = Color(255, 255, 255, 40)
+            g2.stroke = BasicStroke(1f)
+            g2.draw(RoundRectangle2D.Double(0.0, 0.0, (w - 1).toDouble(), (h - 1).toDouble(), radius, radius))
+            foreground = AcrylicTheme.textSecondary
         }
         g2.dispose()
         super.paintComponent(g)
